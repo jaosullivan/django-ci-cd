@@ -28,10 +28,11 @@ pipeline {
         stage('Run Unit Tests (pytest + coverage)') {
             steps {
                 sh """
+                    set -e
                     pip install -r requirements.txt
 
                     coverage run -m pytest
-                    coverage report --fail-under=$COVERAGE_FAIL_UNDER
+                    coverage report --fail-under=\$COVERAGE_FAIL_UNDER
                 """
             }
         }
@@ -39,7 +40,8 @@ pipeline {
         stage('Build image') {
             steps {
                 sh """
-                    docker build -t $REGISTRY/$IMAGE:$TAG .
+                    set -e
+                    docker build -t \$REGISTRY/\$IMAGE:\$TAG .
                 """
             }
         }
@@ -50,11 +52,12 @@ pipeline {
         stage('Run Container Tests (pytest inside container)') {
             steps {
                 sh """
-                    docker run --rm $REGISTRY/$IMAGE:$TAG \
+                    set -e
+                    docker run --rm \$REGISTRY/\$IMAGE:\$TAG \
                       coverage run -m pytest
 
-                    docker run --rm $REGISTRY/$IMAGE:$TAG \
-                      coverage report --fail-under=$COVERAGE_FAIL_UNDER
+                    docker run --rm \$REGISTRY/\$IMAGE:\$TAG \
+                      coverage report --fail-under=\$COVERAGE_FAIL_UNDER
                 """
             }
         }
@@ -63,8 +66,9 @@ pipeline {
             steps {
                 withCredentials([string(credentialsId: 'ghcr-pat', variable: 'GHCR_PAT')]) {
                     sh """
-                        echo "$GHCR_PAT" | docker login ghcr.io -u YOUR_GITHUB_USERNAME --password-stdin
-                        docker push $REGISTRY/$IMAGE:$TAG
+                        set -e
+                        echo "\$GHCR_PAT" | docker login ghcr.io -u \${REGISTRY#*/} --password-stdin
+                        docker push \$REGISTRY/\$IMAGE:\$TAG
                     """
                 }
             }
@@ -74,13 +78,14 @@ pipeline {
             steps {
                 withCredentials([file(credentialsId: 'kubeconfig-rancher', variable: 'KUBECONFIG')]) {
                     sh """
-                        export KUBECONFIG=$KUBECONFIG
+                        set -e
+                        export KUBECONFIG=\$KUBECONFIG
                         kubectl config use-context rancher-desktop
 
-                        helm upgrade --install $GREEN_RELEASE ./helm/django-app \
+                        helm upgrade --install \$GREEN_RELEASE ./helm/django-app \
                           --set color=green \
-                          --set image.repository=$REGISTRY/$IMAGE \
-                          --set image.tag=$TAG \
+                          --set image.repository=\$REGISTRY/\$IMAGE \
+                          --set image.tag=\$TAG \
                           --set serviceAccount.create=true
                     """
                 }
@@ -91,10 +96,11 @@ pipeline {
             steps {
                 withCredentials([file(credentialsId: 'kubeconfig-rancher', variable: 'KUBECONFIG')]) {
                     sh """
-                        export KUBECONFIG=$KUBECONFIG
+                        set -e
+                        export KUBECONFIG=\$KUBECONFIG
                         kubectl config use-context rancher-desktop
 
-                        kubectl rollout status deployment/${GREEN_RELEASE}-django-app --timeout=120s
+                        kubectl rollout status deployment/\${GREEN_RELEASE}-django-app --timeout=120s
                     """
                 }
             }
@@ -107,21 +113,21 @@ pipeline {
             steps {
                 withCredentials([file(credentialsId: 'kubeconfig-rancher', variable: 'KUBECONFIG')]) {
                     sh """
-                        export KUBECONFIG=$KUBECONFIG
+                        set -e
+                        export KUBECONFIG=\$KUBECONFIG
                         kubectl config use-context rancher-desktop
 
-                        GREEN_SVC="${GREEN_RELEASE}-django-app"
+                        GREEN_SVC="\${GREEN_RELEASE}-django-app"
 
-                        echo "Running smoke test against service: $GREEN_SVC"
+                        echo "Running smoke test against service: \$GREEN_SVC"
 
-                        IP=$(kubectl get svc $GREEN_SVC -o jsonpath='{.spec.clusterIP}')
+                        IP=\$(kubectl get svc \$GREEN_SVC -o jsonpath='{.spec.clusterIP}')
                         echo "Service IP: \$IP"
 
-                        kubectl run smoke-test --rm -i --restart=Never \
+                        STATUS=\$(kubectl run smoke-test --rm -i --restart=Never \
                           --image=curlimages/curl:8.5.0 \
-                          -- curl -s -o /dev/null -w "%{http_code}" http://\$IP:8000/health/ > status.txt
+                          -- curl -s -o /dev/null -w "%{http_code}" http://\$IP:8000/health/)
 
-                        STATUS=$(cat status.txt)
                         echo "Smoke test status: \$STATUS"
 
                         if [ "\$STATUS" != "200" ]; then
@@ -139,33 +145,39 @@ pipeline {
             steps {
                 withCredentials([file(credentialsId: 'kubeconfig-rancher', variable: 'KUBECONFIG')]) {
                     sh """
-                        export KUBECONFIG=$KUBECONFIG
+                        set -e
+                        export KUBECONFIG=\$KUBECONFIG
                         kubectl config use-context rancher-desktop
 
-                        kubectl patch ingress django-app \
-                          -p '{
-                            "spec": {
-                              "rules": [
-                                {
-                                  "host": "$HOST",
-                                  "http": {
-                                    "paths": [
-                                      {
-                                        "path": "/",
-                                        "pathType": "Prefix",
-                                        "backend": {
-                                          "service": {
-                                            "name": "${GREEN_RELEASE}-django-app",
-                                            "port": { "number": 8000 }
-                                          }
-                                        }
-                                      }
-                                    ]
-                                  }
-                                }
-                              ]
-                            }
-                          }'
+                        cat > /tmp/ingress-patch.json <<'EOF'
+{
+  "spec": {
+    "rules": [
+      {
+        "host": "\${HOST}",
+        "http": {
+          "paths": [
+            {
+              "path": "/",
+              "pathType": "Prefix",
+              "backend": {
+                "service": {
+                  "name": "\${GREEN_RELEASE}-django-app",
+                  "port": {
+                    "number": 8000
+                  }
+                }
+              }
+            }
+          ]
+        }
+      }
+    ]
+  }
+}
+EOF
+
+                        kubectl patch ingress django-app --type merge -p "\$(cat /tmp/ingress-patch.json)"
                     """
                 }
             }
@@ -178,13 +190,14 @@ pipeline {
             steps {
                 withCredentials([file(credentialsId: 'kubeconfig-rancher', variable: 'KUBECONFIG')]) {
                     sh """
-                        export KUBECONFIG=$KUBECONFIG
+                        set -e
+                        export KUBECONFIG=\$KUBECONFIG
                         kubectl config use-context rancher-desktop
 
-                        helm uninstall $BLUE_RELEASE || true
+                        helm uninstall \$BLUE_RELEASE || true
                     """
                 }
             }
         }
     }
-}
+    }
