@@ -86,7 +86,7 @@ spec:
                 container('python') {
                     sh '''
                         set -e
-                        pip install -r requirements.txt
+                        pip install -r projects/django-app/requirements.txt
                         coverage run -m pytest
                         coverage report --fail-under=$COVERAGE_FAIL_UNDER
                     '''
