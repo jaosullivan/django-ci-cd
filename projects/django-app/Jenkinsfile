@@ -15,7 +15,7 @@ spec:
       image: python:3.12-slim
       command: ['cat']
       tty: true
-      workingDir: /home/jenkins/agent/workspace/django-ci-cd
+      workingDir: /home/jenkins/agent/workspace
       volumeMounts:
         - name: workspace-volume
           mountPath: /home/jenkins/agent
@@ -24,7 +24,7 @@ spec:
       image: docker:27-cli
       command: ['cat']
       tty: true
-      workingDir: /home/jenkins/agent/workspace/django-ci-cd
+      workingDir: /home/jenkins/agent/workspace
       volumeMounts:
         - name: docker-sock
           mountPath: /var/run/docker.sock
@@ -35,7 +35,7 @@ spec:
       image: bitnami/kubectl:latest
       command: ['cat']
       tty: true
-      workingDir: /home/jenkins/agent/workspace/django-ci-cd
+      workingDir: /home/jenkins/agent/workspace
       volumeMounts:
         - name: workspace-volume
           mountPath: /home/jenkins/agent
@@ -44,7 +44,7 @@ spec:
       image: alpine/helm:3.15.4
       command: ['cat']
       tty: true
-      workingDir: /home/jenkins/agent/workspace/django-ci-cd
+      workingDir: /home/jenkins/agent/workspace
       volumeMounts:
         - name: workspace-volume
           mountPath: /home/jenkins/agent
@@ -52,7 +52,7 @@ spec:
     - name: jnlp
       image: jenkins/inbound-agent:3355.v388858a_47b_33-12
       args: ['\$(JENKINS_SECRET)', '\$(JENKINS_NAME)']
-      workingDir: /home/jenkins/agent/workspace/django-ci-cd
+      workingDir: /home/jenkins/agent/workspace
       volumeMounts:
         - name: workspace-volume
           mountPath: /home/jenkins/agent
@@ -78,7 +78,6 @@ spec:
     }
 
     stages {
-
         stage('Checkout') {
             steps { checkout scm }
         }
@@ -161,7 +160,6 @@ spec:
                             set -e
                             export KUBECONFIG=$KUBECONFIG
                             kubectl config use-context rancher-desktop
-
                             kubectl rollout status deployment/${GREEN_RELEASE}-django-app --timeout=120s
                         '''
                     }
