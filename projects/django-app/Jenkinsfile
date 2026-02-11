@@ -9,33 +9,60 @@ metadata:
     jenkins/label: jenkins-jenkins-agent
 spec:
   serviceAccountName: default
+
   containers:
     - name: python
       image: python:3.12-slim
       command: ['cat']
       tty: true
+      workingDir: /home/jenkins/agent/workspace/django-ci-cd
+      volumeMounts:
+        - name: workspace-volume
+          mountPath: /home/jenkins/agent
+
     - name: docker
       image: docker:27-cli
       command: ['cat']
       tty: true
+      workingDir: /home/jenkins/agent/workspace/django-ci-cd
       volumeMounts:
         - name: docker-sock
           mountPath: /var/run/docker.sock
+        - name: workspace-volume
+          mountPath: /home/jenkins/agent
+
     - name: kubectl
       image: bitnami/kubectl:latest
       command: ['cat']
       tty: true
+      workingDir: /home/jenkins/agent/workspace/django-ci-cd
+      volumeMounts:
+        - name: workspace-volume
+          mountPath: /home/jenkins/agent
+
     - name: helm
       image: alpine/helm:3.15.4
       command: ['cat']
       tty: true
+      workingDir: /home/jenkins/agent/workspace/django-ci-cd
+      volumeMounts:
+        - name: workspace-volume
+          mountPath: /home/jenkins/agent
+
     - name: jnlp
       image: jenkins/inbound-agent:3355.v388858a_47b_33-12
       args: ['\$(JENKINS_SECRET)', '\$(JENKINS_NAME)']
+      workingDir: /home/jenkins/agent/workspace/django-ci-cd
+      volumeMounts:
+        - name: workspace-volume
+          mountPath: /home/jenkins/agent
+
   volumes:
     - name: docker-sock
       hostPath:
         path: /var/run/docker.sock
+    - name: workspace-volume
+      emptyDir: {}
 """
         }
     }
@@ -51,9 +78,11 @@ spec:
     }
 
     stages {
+
         stage('Checkout') {
             steps { checkout scm }
         }
+
         stage('Run Unit Tests (pytest + coverage)') {
             steps {
                 container('python') {
@@ -66,6 +95,7 @@ spec:
                 }
             }
         }
+
         stage('Build image') {
             steps {
                 container('docker') {
@@ -76,6 +106,7 @@ spec:
                 }
             }
         }
+
         stage('Run Container Tests (pytest inside container)') {
             steps {
                 container('docker') {
@@ -87,6 +118,7 @@ spec:
                 }
             }
         }
+
         stage('Push to GHCR') {
             steps {
                 container('docker') {
@@ -100,6 +132,7 @@ spec:
                 }
             }
         }
+
         stage('Deploy GREEN') {
             steps {
                 container('helm') {
@@ -108,6 +141,7 @@ spec:
                             set -e
                             export KUBECONFIG=$KUBECONFIG
                             kubectl config use-context rancher-desktop
+
                             helm upgrade --install $GREEN_RELEASE ./helm/django-app \
                               --set color=green \
                               --set image.repository=$REGISTRY/$IMAGE \
@@ -118,6 +152,7 @@ spec:
                 }
             }
         }
+
         stage('Wait for GREEN rollout') {
             steps {
                 container('kubectl') {
@@ -126,12 +161,14 @@ spec:
                             set -e
                             export KUBECONFIG=$KUBECONFIG
                             kubectl config use-context rancher-desktop
+
                             kubectl rollout status deployment/${GREEN_RELEASE}-django-app --timeout=120s
                         '''
                     }
                 }
             }
         }
+
         stage('Smoke test GREEN') {
             steps {
                 container('kubectl') {
@@ -140,21 +177,26 @@ spec:
                             set -e
                             export KUBECONFIG=$KUBECONFIG
                             kubectl config use-context rancher-desktop
+
                             GREEN_SVC="${GREEN_RELEASE}-django-app"
                             IP=$(kubectl get svc $GREEN_SVC -o jsonpath='{.spec.clusterIP}')
+
                             STATUS=$(kubectl run smoke-test --rm -i --restart=Never \
                               --image=curlimages/curl:8.5.0 \
                               -- curl -s -o /dev/null -w "%{http_code}" http://$IP:8000/health/)
+
                             if [ "$STATUS" != "200" ]; then
                                 echo "Smoke test FAILED"
                                 exit 1
                             fi
+
                             echo "Smoke test PASSED"
                         '''
                     }
                 }
             }
         }
+
         stage('Switch traffic to GREEN') {
             steps {
                 container('kubectl') {
@@ -163,15 +205,18 @@ spec:
                             set -e
                             export KUBECONFIG=$KUBECONFIG
                             kubectl config use-context rancher-desktop
+
                             cp app/ingress-patch.json /tmp/ingress-patch.json
                             sed -i "s/REPLACE_HOST/$HOST/g" /tmp/ingress-patch.json
                             sed -i "s/REPLACE_SERVICE_NAME/${GREEN_RELEASE}-django-app/g" /tmp/ingress-patch.json
+
                             kubectl patch ingress django-app --type merge -p "$(cat /tmp/ingress-patch.json)"
                         '''
                     }
                 }
             }
         }
+
         stage('Optional: Cleanup BLUE') {
             when { expression { false } }
             steps {
