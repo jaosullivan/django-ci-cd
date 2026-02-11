@@ -1,0 +1,190 @@
+pipeline {
+    agent { label 'jenkins-jenkins-agent' }
+
+    environment {
+        REGISTRY = "ghcr.io/YOUR_GITHUB_USERNAME"
+        IMAGE    = "django-app"
+        TAG      = "latest"
+
+        BLUE_RELEASE  = "django-blue"
+        GREEN_RELEASE = "django-green"
+
+        HOST = "django.local"
+
+        COVERAGE_FAIL_UNDER = "80"
+    }
+
+    stages {
+
+        stage('Checkout') {
+            steps {
+                checkout scm
+            }
+        }
+
+        // ------------------------------------------------------------
+        // TDD Stage 1: Unit Tests with pytest + coverage
+        // ------------------------------------------------------------
+        stage('Run Unit Tests (pytest + coverage)') {
+            steps {
+                sh """
+                    pip install -r requirements.txt
+
+                    coverage run -m pytest
+                    coverage report --fail-under=$COVERAGE_FAIL_UNDER
+                """
+            }
+        }
+
+        stage('Build image') {
+            steps {
+                sh """
+                    docker build -t $REGISTRY/$IMAGE:$TAG .
+                """
+            }
+        }
+
+        // ------------------------------------------------------------
+        // TDD Stage 2: Container Tests (pytest inside the built image)
+        // ------------------------------------------------------------
+        stage('Run Container Tests (pytest inside container)') {
+            steps {
+                sh """
+                    docker run --rm $REGISTRY/$IMAGE:$TAG \
+                      coverage run -m pytest
+
+                    docker run --rm $REGISTRY/$IMAGE:$TAG \
+                      coverage report --fail-under=$COVERAGE_FAIL_UNDER
+                """
+            }
+        }
+
+        stage('Push to GHCR') {
+            steps {
+                withCredentials([string(credentialsId: 'ghcr-pat', variable: 'GHCR_PAT')]) {
+                    sh """
+                        echo "$GHCR_PAT" | docker login ghcr.io -u YOUR_GITHUB_USERNAME --password-stdin
+                        docker push $REGISTRY/$IMAGE:$TAG
+                    """
+                }
+            }
+        }
+
+        stage('Deploy GREEN') {
+            steps {
+                withCredentials([file(credentialsId: 'kubeconfig-rancher', variable: 'KUBECONFIG')]) {
+                    sh """
+                        export KUBECONFIG=$KUBECONFIG
+                        kubectl config use-context rancher-desktop
+
+                        helm upgrade --install $GREEN_RELEASE ./helm/django-app \
+                          --set color=green \
+                          --set image.repository=$REGISTRY/$IMAGE \
+                          --set image.tag=$TAG \
+                          --set serviceAccount.create=true
+                    """
+                }
+            }
+        }
+
+        stage('Wait for GREEN rollout') {
+            steps {
+                withCredentials([file(credentialsId: 'kubeconfig-rancher', variable: 'KUBECONFIG')]) {
+                    sh """
+                        export KUBECONFIG=$KUBECONFIG
+                        kubectl config use-context rancher-desktop
+
+                        kubectl rollout status deployment/${GREEN_RELEASE}-django-app --timeout=120s
+                    """
+                }
+            }
+        }
+
+        // ------------------------------------------------------------
+        // TDD Stage 3: Smoke Test (live GREEN environment)
+        // ------------------------------------------------------------
+        stage('Smoke test GREEN') {
+            steps {
+                withCredentials([file(credentialsId: 'kubeconfig-rancher', variable: 'KUBECONFIG')]) {
+                    sh """
+                        export KUBECONFIG=$KUBECONFIG
+                        kubectl config use-context rancher-desktop
+
+                        GREEN_SVC="${GREEN_RELEASE}-django-app"
+
+                        echo "Running smoke test against service: $GREEN_SVC"
+
+                        IP=$(kubectl get svc $GREEN_SVC -o jsonpath='{.spec.clusterIP}')
+                        echo "Service IP: \$IP"
+
+                        kubectl run smoke-test --rm -i --restart=Never \
+                          --image=curlimages/curl:8.5.0 \
+                          -- curl -s -o /dev/null -w "%{http_code}" http://\$IP:8000/health/ > status.txt
+
+                        STATUS=$(cat status.txt)
+                        echo "Smoke test status: \$STATUS"
+
+                        if [ "\$STATUS" != "200" ]; then
+                            echo "Smoke test FAILED"
+                            exit 1
+                        fi
+
+                        echo "Smoke test PASSED"
+                    """
+                }
+            }
+        }
+
+        stage('Switch traffic to GREEN') {
+            steps {
+                withCredentials([file(credentialsId: 'kubeconfig-rancher', variable: 'KUBECONFIG')]) {
+                    sh """
+                        export KUBECONFIG=$KUBECONFIG
+                        kubectl config use-context rancher-desktop
+
+                        kubectl patch ingress django-app \
+                          -p '{
+                            "spec": {
+                              "rules": [
+                                {
+                                  "host": "$HOST",
+                                  "http": {
+                                    "paths": [
+                                      {
+                                        "path": "/",
+                                        "pathType": "Prefix",
+                                        "backend": {
+                                          "service": {
+                                            "name": "${GREEN_RELEASE}-django-app",
+                                            "port": { "number": 8000 }
+                                          }
+                                        }
+                                      }
+                                    ]
+                                  }
+                                }
+                              ]
+                            }
+                          }'
+                    """
+                }
+            }
+        }
+
+        stage('Optional: Cleanup BLUE') {
+            when {
+                expression { return false }
+            }
+            steps {
+                withCredentials([file(credentialsId: 'kubeconfig-rancher', variable: 'KUBECONFIG')]) {
+                    sh """
+                        export KUBECONFIG=$KUBECONFIG
+                        kubectl config use-context rancher-desktop
+
+                        helm uninstall $BLUE_RELEASE || true
+                    """
+                }
+            }
+        }
+    }
+}

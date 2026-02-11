@@ -1,0 +1,112 @@
+# -------------------------------------------------------------------
+# Blue/Green deployment identity
+# This value is overridden by Helm:
+#   --set color=blue
+#   --set color=green
+# -------------------------------------------------------------------
+color: default
+
+# Number of Django pods
+replicaCount: 1
+
+# -------------------------------------------------------------------
+# Image settings
+# Jenkins will override repository + tag during CI/CD
+# -------------------------------------------------------------------
+image:
+  repository: django-app
+  tag: dev
+  pullPolicy: IfNotPresent     # GHCR-friendly
+
+imagePullSecrets: []
+
+# -------------------------------------------------------------------
+# Naming
+# DO NOT override fullnameOverride — Helm needs unique names per release
+# -------------------------------------------------------------------
+nameOverride: ""
+fullnameOverride: ""
+
+# -------------------------------------------------------------------
+# Service account (must be created per release for Blue/Green)
+# -------------------------------------------------------------------
+serviceAccount:
+  create: true
+  automount: true
+  annotations: {}
+  name: ""                     # Let Helm generate: <release>-django-app
+
+# Pod metadata
+podAnnotations: {}
+podLabels: {}
+
+# Security context
+podSecurityContext: {}
+securityContext: {}
+
+# -------------------------------------------------------------------
+# Kubernetes Service
+# Each release gets its own service:
+#   django-blue-django-app
+#   django-green-django-app
+# -------------------------------------------------------------------
+service:
+  type: ClusterIP
+  port: 8000
+
+# -------------------------------------------------------------------
+# Ingress (Traefik)
+# Only ONE ingress should route traffic.
+# Blue/Green switching is done by changing the backend service.
+# -------------------------------------------------------------------
+ingress:
+  enabled: true
+  className: traefik
+
+  annotations:
+    kubernetes.io/ingress.class: traefik
+
+  hosts:
+    - host: django.local
+      paths:
+        - path: /
+          pathType: Prefix
+
+  tls: []
+
+# Resources
+resources: {}
+
+# Health checks
+livenessProbe:
+  httpGet:
+    path: /health/
+    port: http
+
+readinessProbe:
+  httpGet:
+    path: /health/
+    port: http
+
+# Autoscaling
+autoscaling:
+  enabled: false
+  minReplicas: 1
+  maxReplicas: 100
+  targetCPUUtilizationPercentage: 80
+
+# Volumes
+volumes: []
+volumeMounts: []
+
+# Scheduling
+nodeSelector: {}
+tolerations: []
+affinity: {}
+
+# -------------------------------------------------------------------
+# Database migration Job
+# Allow disabling migrations for Blue/Green
+# -------------------------------------------------------------------
+migrate:
+  enabled: true

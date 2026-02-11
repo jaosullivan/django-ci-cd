@@ -1,0 +1,31 @@
+controller:
+  admin:
+    username: admin
+    password: admin
+
+  installPlugins:
+    - kubernetes
+    - workflow-aggregator
+    - git
+    - configuration-as-code
+    - docker-workflow
+    - credentials-binding
+    - blueocean
+
+  image:
+    registry: docker.io
+    repository: jenkins/jenkins
+    tag: lts
+    pullPolicy: Always
+
+  serviceType: NodePort
+
+  additionalContainers:
+    - name: kubectl
+      image: bitnami/kubectl:latest
+      command: ["sleep"]
+      args: ["infinity"]
+
+  persistence:
+    enabled: true
+    size: 10Gi
