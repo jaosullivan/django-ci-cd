@@ -130,7 +130,7 @@ EOF
 
         stage('Deploy GREEN') {
             steps {
-                container('helm') {
+                container('kubectl') {
                     withCredentials([file(credentialsId: 'kubeconfig-rancher', variable: 'KUBECONFIG')]) {
                         sh '''
                             set -e
