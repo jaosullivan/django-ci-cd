@@ -1,12 +1,12 @@
 pipeline {
     agent {
         kubernetes {
-            yaml """
+            yaml '''
 apiVersion: v1
 kind: Pod
 metadata:
   labels:
-    jenkins\/label: jenkins-jenkins-agent
+    jenkins/label: jenkins-jenkins-agent
 spec:
   serviceAccountName: default
 
@@ -47,7 +47,7 @@ spec:
 
     - name: jnlp
       image: jenkins/inbound-agent:3355.v388858a_47b_33-12
-      args: ['\\$(JENKINS_SECRET)', '\\$(JENKINS_NAME)']
+      args: ['$(JENKINS_SECRET)', '$(JENKINS_NAME)']
       volumeMounts:
         - name: workspace-volume
           mountPath: /home/jenkins/agent
@@ -58,7 +58,7 @@ spec:
 
     - name: kaniko-secret
       emptyDir: {}
-"""
+'''
         }
     }
 
