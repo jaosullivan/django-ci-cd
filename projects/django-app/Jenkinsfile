@@ -67,7 +67,7 @@ spec:
     }
 
     environment {
-        REGISTRY = "ghcr.io/YOUR_GITHUB_USERNAME"
+        REGISTRY = "ghcr.io/jaosullivan"
         IMAGE    = "django-app"
         TAG      = "latest"
 
