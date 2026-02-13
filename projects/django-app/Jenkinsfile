@@ -45,14 +45,14 @@ spec:
         - name: workspace-volume
           mountPath: /home/jenkins/agent
 
-        - name: jnlp
-            image: jenkins/inbound-agent:3355.v388858a_47b_33-12
-            args: ['\$(JENKINS_SECRET)', '\$(JENKINS_NAME)']
-            volumeMounts:
-                - name: workspace-volume
-                    mountPath: /home/jenkins/agent
+    - name: jnlp
+      image: jenkins/inbound-agent:3355.v388858a_47b_33-12
+      args: ['\\$(JENKINS_SECRET)', '\\$(JENKINS_NAME)']
+      volumeMounts:
+        - name: workspace-volume
+          mountPath: /home/jenkins/agent
 
-    volumes:
+  volumes:
     - name: workspace-volume
       emptyDir: {}
 
