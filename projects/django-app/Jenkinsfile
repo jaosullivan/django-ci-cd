@@ -50,7 +50,7 @@ spec:
           mountPath: /home/jenkins/agent
 
     - name: k8s-tools
-      image: lachlanevenson/k8s-helm:v3.15.4
+      image: lachlanevenson/k8s-helm:latest
       command: ['cat']
       tty: true
       volumeMounts:
