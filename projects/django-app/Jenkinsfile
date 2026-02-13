@@ -6,7 +6,7 @@ apiVersion: v1
 kind: Pod
 metadata:
   labels:
-    jenkins/label: jenkins-jenkins-agent
+    jenkins\/label: jenkins-jenkins-agent
 spec:
   serviceAccountName: default
 
