@@ -53,11 +53,11 @@ spec:
                     mountPath: /home/jenkins/agent
 
     volumes:
-        - name: workspace-volume
-            emptyDir: {}
+    - name: workspace-volume
+      emptyDir: {}
 
-        - name: kaniko-secret
-            emptyDir: {}
+    - name: kaniko-secret
+      emptyDir: {}
 """
         }
     }
