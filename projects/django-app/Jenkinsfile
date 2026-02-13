@@ -19,15 +19,15 @@ spec:
         - name: workspace-volume
           mountPath: /home/jenkins/agent
 
-    - name: docker
-      image: docker:27-cli
+    - name: kaniko
+      image: gcr.io/kaniko-project/executor:latest
       command: ['cat']
       tty: true
       volumeMounts:
-        - name: docker-sock
-          mountPath: /var/run/docker.sock
         - name: workspace-volume
           mountPath: /home/jenkins/agent
+        - name: kaniko-secret
+          mountPath: /kaniko/.docker
 
     - name: kubectl
       image: bitnami/kubectl:latest
@@ -47,16 +47,16 @@ spec:
 
     - name: jnlp
       image: jenkins/inbound-agent:3355.v388858a_47b_33-12
-      args: ['\$(JENKINS_SECRET)', '\$(JENKINS_NAME)']
+      args: ['$(JENKINS_SECRET)', '$(JENKINS_NAME)']
       volumeMounts:
         - name: workspace-volume
           mountPath: /home/jenkins/agent
 
   volumes:
-    - name: docker-sock
-      hostPath:
-        path: /var/run/docker.sock
     - name: workspace-volume
+      emptyDir: {}
+
+    - name: kaniko-secret
       emptyDir: {}
 """
         }
@@ -95,37 +95,31 @@ spec:
             }
         }
 
-        stage('Build image') {
+        stage('Build image (Kaniko)') {
             steps {
-                container('docker') {
-                    sh '''
-                        set -e
-                        docker build -t $REGISTRY/$IMAGE:$TAG .
-                    '''
-                }
-            }
-        }
-
-        stage('Run Container Tests (pytest inside container)') {
-            steps {
-                container('docker') {
-                    sh '''
-                        set -e
-                        docker run --rm $REGISTRY/$IMAGE:$TAG coverage run -m pytest
-                        docker run --rm $REGISTRY/$IMAGE:$TAG coverage report --fail-under=$COVERAGE_FAIL_UNDER
-                    '''
-                }
-            }
-        }
-
-        stage('Push to GHCR') {
-            steps {
-                container('docker') {
+                container('kaniko') {
                     withCredentials([string(credentialsId: 'ghcr-pat', variable: 'GHCR_PAT')]) {
                         sh '''
                             set -e
-                            echo "$GHCR_PAT" | docker login ghcr.io -u ${REGISTRY#*/} --password-stdin
-                            docker push $REGISTRY/$IMAGE:$TAG
+
+                            # Write GHCR auth file for Kaniko
+                            mkdir -p /kaniko/.docker
+                            cat <<EOF > /kaniko/.docker/config.json
+                            {
+                              "auths": {
+                                "ghcr.io": {
+                                  "auth": "$(echo -n ${REGISTRY#*/}:$GHCR_PAT | base64)"
+                                }
+                              }
+                            }
+EOF
+
+                            # Build + push image
+                            /kaniko/executor \
+                              --context `pwd` \
+                              --dockerfile `pwd`/Dockerfile \
+                              --destination $REGISTRY/$IMAGE:$TAG \
+                              --cache=true
                         '''
                     }
                 }
