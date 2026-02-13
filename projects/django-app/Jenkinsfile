@@ -49,6 +49,14 @@ spec:
         - name: workspace-volume
           mountPath: /home/jenkins/agent
 
+    - name: k8s-tools
+      image: lachlanevenson/k8s-helm:v3.15.4
+      command: ['cat']
+      tty: true
+      volumeMounts:
+        - name: workspace-volume
+          mountPath: /home/jenkins/agent
+
     - name: jnlp
       image: jenkins/inbound-agent:3355.v388858a_47b_33-12
       args: ['$(JENKINS_SECRET)', '$(JENKINS_NAME)']
@@ -130,7 +138,7 @@ EOF
 
         stage('Deploy GREEN') {
             steps {
-                container('kubectl') {
+                container('k8s-tools') {
                     withCredentials([file(credentialsId: 'kubeconfig-rancher', variable: 'KUBECONFIG')]) {
                         sh '''
                             set -e
