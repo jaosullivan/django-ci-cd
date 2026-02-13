@@ -100,35 +100,33 @@ spec:
         }
 
         stage('Build image (Kaniko)') {
-            steps {
-                container('kaniko') {
-                    withCredentials([string(credentialsId: 'ghcr-pat', variable: 'GHCR_PAT')]) {
-                        sh '''
-                            set -e
+    steps {
+        container('kaniko') {
+            withCredentials([string(credentialsId: 'ghcr-pat', variable: 'GHCR_PAT')]) {
+                sh '''
+                    set -e
 
-                            # Write GHCR auth file for Kaniko
-                            mkdir -p /kaniko/.docker
-                            cat <<EOF > /kaniko/.docker/config.json
-                            {
-                              "auths": {
-                                "ghcr.io": {
-                                  "auth": "$(echo -n ${REGISTRY#*/}:$GHCR_PAT | base64)"
-                                }
-                              }
-                            }
+                    mkdir -p /kaniko/.docker
+                    cat <<EOF > /kaniko/.docker/config.json
+                    {
+                      "auths": {
+                        "ghcr.io": {
+                          "auth": "$(echo -n ${REGISTRY#*/}:$GHCR_PAT | base64)"
+                        }
+                      }
+                    }
 EOF
 
-                            # Build + push image
-                            /kaniko/executor \
-                              --context `pwd` \
-                              --dockerfile `pwd`/Dockerfile \
-                              --destination $REGISTRY/$IMAGE:$TAG \
-                              --cache=true
-                        '''
-                    }
-                }
+                    /kaniko/executor \
+                      --context `pwd`/projects/django-app \
+                      --dockerfile `pwd`/projects/django-app/Dockerfile \
+                      --destination $REGISTRY/$IMAGE:$TAG \
+                      --cache=true
+                '''
             }
         }
+    }
+}
 
         stage('Deploy GREEN') {
             steps {
