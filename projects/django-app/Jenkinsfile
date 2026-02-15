@@ -22,33 +22,14 @@ spec:
 
     - name: kaniko
       image: gcr.io/kaniko-project/executor:debug
-      command:
-        - /busybox/sh
-      args:
-        - -c
-        - "sleep 9999999"
+      command: ['/busybox/sh']
+      args: ['-c', 'sleep 9999999']
       tty: true
       volumeMounts:
         - name: workspace-volume
           mountPath: /home/jenkins/agent
         - name: kaniko-secret
           mountPath: /kaniko/.docker
-
-    - name: kubectl
-      image: bitnami/kubectl:latest
-      command: ['cat']
-      tty: true
-      volumeMounts:
-        - name: workspace-volume
-          mountPath: /home/jenkins/agent
-
-    - name: helm
-      image: alpine/helm:3.15.4
-      command: ['cat']
-      tty: true
-      volumeMounts:
-        - name: workspace-volume
-          mountPath: /home/jenkins/agent
 
     - name: k8s-tools
       image: dtzar/helm-kubectl:3.15.4
@@ -68,7 +49,6 @@ spec:
   volumes:
     - name: workspace-volume
       emptyDir: {}
-
     - name: kaniko-secret
       emptyDir: {}
 '''
@@ -80,10 +60,9 @@ spec:
         IMAGE    = "django-app"
         TAG      = "latest"
 
-        BLUE_RELEASE  = "django-blue"
-        GREEN_RELEASE = "django-green"
-
-        HOST = "django.local"
+        # GitOps repo
+        GITOPS_REPO = "github.com/jaosullivan/django-gitops.git"
+        GITOPS_DIR  = "django-gitops"
 
         COVERAGE_FAIL_UNDER = "80"
     }
@@ -101,13 +80,12 @@ spec:
                         set -e
                         git config --global --add safe.directory $(pwd)
                         COMMIT=$(git rev-parse --short HEAD)
-                        echo "Using image tag: $COMMIT"
                         echo $COMMIT > commit.txt
                     '''
                 }
                 script {
                     env.COMMIT = readFile('commit.txt').trim()
-                    echo "Resolved COMMIT env: ${env.COMMIT}"
+                    echo "Using image tag: ${env.COMMIT}"
                 }
             }
         }
@@ -156,109 +134,33 @@ EOF
             }
         }
 
-        stage('Deploy GREEN') {
+        stage('Update GitOps Repository') {
             steps {
                 container('k8s-tools') {
-                    sh '''
-                        set -e
-                        echo "Using in-cluster Kubernetes credentials"
+                    withCredentials([usernamePassword(credentialsId: 'gitops-creds', usernameVariable: 'USER', passwordVariable: 'PASS')]) {
+                        sh '''
+                            set -e
 
-                        cd projects/django-app
+                            rm -rf $GITOPS_DIR
+                            git clone https://$USER:$PASS@$GITOPS_REPO $GITOPS_DIR
 
-                        helm upgrade --install $GREEN_RELEASE helm/django-app \
-                          --set color=green \
-                          --set image.repository=$REGISTRY/$IMAGE \
-                          --set image.tag=$COMMIT \
-                          --set serviceAccount.create=true \
-                          --set ingress.enabled=false \
-                          --set migrate.enabled=false
-                    '''
+                            cd $GITOPS_DIR
+
+                            # Update GREEN image tag
+                            sed -i "s/tag:.*/tag: $COMMIT/" apps/django-app/green/values-green.yaml
+
+                            # Switch ingress to GREEN
+                            sed -i "s/name:.*/name: django-green-django-app-green/" clusters/production/ingress.yaml
+
+                            git config user.email "ci@jenkins"
+                            git config user.name "Jenkins CI"
+
+                            git add .
+                            git commit -m "Deploy version $COMMIT"
+                            git push
+                        '''
+                    }
                 }
-            }
-        }
-
-        stage('Wait for GREEN rollout') {
-            steps {
-                container('k8s-tools') {
-                    sh '''
-                        set -e
-                        kubectl rollout status deployment/${GREEN_RELEASE}-django-app-green --timeout=120s
-                    '''
-                }
-            }
-        }
-
-        stage('Smoke test GREEN') {
-            steps {
-                container('k8s-tools') {
-                    sh '''
-                        set -e
-
-                        GREEN_SVC="${GREEN_RELEASE}-django-app-green"
-                        IP=$(kubectl get svc ${GREEN_SVC} -o jsonpath='{.spec.clusterIP}')
-
-                        RAW=$(kubectl run smoke-test --rm -i --restart=Never \
-                          --image=curlimages/curl:8.5.0 \
-                          -- curl -s -o /dev/null -w "%{http_code}" http://$IP:8000/health/)
-
-                        STATUS=$(echo "$RAW" | head -c 3)
-
-                        if [ "$STATUS" != "200" ]; then
-                            echo "Smoke test FAILED (got $STATUS)"
-                            exit 1
-                        fi
-
-                        echo "Smoke test PASSED"
-                    '''
-                }
-            }
-        }
-
-        stage('Switch traffic to GREEN') {
-            steps {
-                container('k8s-tools') {
-                    sh '''
-                        set -e
-
-                        cp projects/django-app/app/ingress-patch.json /tmp/ingress-patch.json
-                        sed -i "s/REPLACE_HOST/$HOST/g" /tmp/ingress-patch.json
-                        sed -i "s/REPLACE_SERVICE_NAME/${GREEN_RELEASE}-django-app-green/g" /tmp/ingress-patch.json
-
-                        kubectl patch ingress django-app --type merge -p "$(cat /tmp/ingress-patch.json)"
-                    '''
-                }
-            }
-        }
-
-        stage('Optional: Cleanup BLUE') {
-            when { expression { false } }
-            steps {
-                container('k8s-tools') {
-                    sh '''
-                        set -e
-                        helm uninstall $BLUE_RELEASE || true
-                    '''
-                }
-            }
-        }
-    }
-
-    post {
-        failure {
-            container('k8s-tools') {
-                sh '''
-                    echo "Smoke test failed — rolling back to BLUE"
-
-                    cp projects/django-app/app/ingress-patch.json /tmp/ingress-rollback.json
-                    sed -i "s/REPLACE_HOST/$HOST/g" /tmp/ingress-rollback.json
-                    sed -i "s/REPLACE_SERVICE_NAME/${BLUE_RELEASE}-django-app-blue/g" /tmp/ingress-rollback.json
-
-                    kubectl patch ingress django-app --type merge -p "$(cat /tmp/ingress-rollback.json)"
-
-                    helm uninstall $GREEN_RELEASE || true
-
-                    echo "Rollback complete"
-                '''
             }
         }
     }
