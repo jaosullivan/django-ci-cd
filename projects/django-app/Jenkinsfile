@@ -162,7 +162,7 @@ EOF
                 container('k8s-tools') {
                     sh '''
                         set -e
-                        kubectl rollout status deployment/${GREEN_RELEASE}-django-app --timeout=120s
+                        kubectl rollout status deployment/${GREEN_RELEASE}-django-app-green --timeout=120s
                     '''
                 }
             }
@@ -175,7 +175,7 @@ EOF
                         set -e
 
                         GREEN_SVC="${GREEN_RELEASE}-django-app"
-                        IP=$(kubectl get svc $GREEN_SVC -o jsonpath='{.spec.clusterIP}')
+                        IP=$(kubectl get svc ${GREEN_SVC} -o jsonpath='{.spec.clusterIP}')
 
                         STATUS=$(kubectl run smoke-test --rm -i --restart=Never \
                           --image=curlimages/curl:8.5.0 \
