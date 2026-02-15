@@ -18,6 +18,7 @@ rules:
       - secrets
       - configmaps
       - endpoints
+      - serviceaccounts
     verbs:
       - get
       - list
