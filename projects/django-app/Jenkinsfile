@@ -145,13 +145,13 @@ EOF
 
                         cd projects/django-app
 
-                        # Deploy GREEN without creating an Ingress
                         helm upgrade --install $GREEN_RELEASE helm/django-app \
                           --set color=green \
                           --set image.repository=$REGISTRY/$IMAGE \
                           --set image.tag=$TAG \
                           --set serviceAccount.create=true \
-                          --set ingress.enabled=false
+                          --set ingress.enabled=false \
+                          --set migrate.enabled=false
                     '''
                 }
             }
