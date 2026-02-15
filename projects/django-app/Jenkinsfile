@@ -96,10 +96,18 @@ spec:
 
         stage('Determine Version Tag') {
             steps {
+                container('k8s-tools') {
+                    sh '''
+                        set -e
+                        git config --global --add safe.directory $(pwd)
+                        COMMIT=$(git rev-parse --short HEAD)
+                        echo "Using image tag: $COMMIT"
+                        echo $COMMIT > commit.txt
+                    '''
+                }
                 script {
-                    COMMIT = sh(script: "git rev-parse --short HEAD", returnStdout: true).trim()
-                    env.COMMIT = COMMIT
-                    echo "Using image tag: ${COMMIT}"
+                    env.COMMIT = readFile('commit.txt').trim()
+                    echo "Resolved COMMIT env: ${env.COMMIT}"
                 }
             }
         }
