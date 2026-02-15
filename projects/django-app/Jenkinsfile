@@ -141,11 +141,11 @@ EOF
                 container('k8s-tools') {
                     sh '''
                         set -e
-
-                        # Use in-cluster Kubernetes API
                         echo "Using in-cluster Kubernetes credentials"
 
-                        helm upgrade --install $GREEN_RELEASE ./helm/django-app \
+                        cd projects/django-app
+
+                        helm upgrade --install $GREEN_RELEASE helm/django-app \
                           --set color=green \
                           --set image.repository=$REGISTRY/$IMAGE \
                           --set image.tag=$TAG \
