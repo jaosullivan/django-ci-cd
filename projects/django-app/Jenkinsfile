@@ -94,6 +94,16 @@ spec:
             steps { checkout scm }
         }
 
+        stage('Determine Version Tag') {
+            steps {
+                script {
+                    COMMIT = sh(script: "git rev-parse --short HEAD", returnStdout: true).trim()
+                    env.COMMIT = COMMIT
+                    echo "Using image tag: ${COMMIT}"
+                }
+            }
+        }
+
         stage('Run Unit Tests (pytest + coverage)') {
             steps {
                 container('python') {
@@ -130,6 +140,7 @@ EOF
                               --context `pwd`/projects/django-app \
                               --dockerfile `pwd`/projects/django-app/Dockerfile \
                               --destination $REGISTRY/$IMAGE:$TAG \
+                              --destination $REGISTRY/$IMAGE:$COMMIT \
                               --cache=true
                         '''
                     }
@@ -149,7 +160,7 @@ EOF
                         helm upgrade --install $GREEN_RELEASE helm/django-app \
                           --set color=green \
                           --set image.repository=$REGISTRY/$IMAGE \
-                          --set image.tag=$TAG \
+                          --set image.tag=$COMMIT \
                           --set serviceAccount.create=true \
                           --set ingress.enabled=false \
                           --set migrate.enabled=false
@@ -220,6 +231,26 @@ EOF
                         helm uninstall $BLUE_RELEASE || true
                     '''
                 }
+            }
+        }
+    }
+
+    post {
+        failure {
+            container('k8s-tools') {
+                sh '''
+                    echo "Smoke test failed — rolling back to BLUE"
+
+                    cp projects/django-app/app/ingress-patch.json /tmp/ingress-rollback.json
+                    sed -i "s/REPLACE_HOST/$HOST/g" /tmp/ingress-rollback.json
+                    sed -i "s/REPLACE_SERVICE_NAME/${BLUE_RELEASE}-django-app-blue/g" /tmp/ingress-rollback.json
+
+                    kubectl patch ingress django-app --type merge -p "$(cat /tmp/ingress-rollback.json)"
+
+                    helm uninstall $GREEN_RELEASE || true
+
+                    echo "Rollback complete"
+                '''
             }
         }
     }
