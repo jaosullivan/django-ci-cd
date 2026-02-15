@@ -70,7 +70,7 @@ rules:
       - patch
       - delete
 
-  # Events (optional but useful for rollout debugging)
+  # Events
   - apiGroups: [""]
     resources:
       - events
