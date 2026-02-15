@@ -174,7 +174,7 @@ EOF
                     sh '''
                         set -e
 
-                        GREEN_SVC="${GREEN_RELEASE}-django-app"
+                        GREEN_SVC="${GREEN_RELEASE}-django-app-green"
                         IP=$(kubectl get svc ${GREEN_SVC} -o jsonpath='{.spec.clusterIP}')
 
                         STATUS=$(kubectl run smoke-test --rm -i --restart=Never \
@@ -200,7 +200,7 @@ EOF
 
                         cp app/ingress-patch.json /tmp/ingress-patch.json
                         sed -i "s/REPLACE_HOST/$HOST/g" /tmp/ingress-patch.json
-                        sed -i "s/REPLACE_SERVICE_NAME/${GREEN_RELEASE}-django-app/g" /tmp/ingress-patch.json
+                        sed -i "s/REPLACE_SERVICE_NAME/${GREEN_RELEASE}-django-app-green/g" /tmp/ingress-patch.json
 
                         kubectl patch ingress django-app --type merge -p "$(cat /tmp/ingress-patch.json)"
                     '''
