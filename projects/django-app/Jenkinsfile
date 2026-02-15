@@ -177,12 +177,14 @@ EOF
                         GREEN_SVC="${GREEN_RELEASE}-django-app-green"
                         IP=$(kubectl get svc ${GREEN_SVC} -o jsonpath='{.spec.clusterIP}')
 
-                        STATUS=$(kubectl run smoke-test --rm -i --restart=Never \
+                        RAW=$(kubectl run smoke-test --rm -i --restart=Never \
                           --image=curlimages/curl:8.5.0 \
                           -- curl -s -o /dev/null -w "%{http_code}" http://$IP:8000/health/)
 
+                        STATUS=$(echo "$RAW" | head -c 3)
+
                         if [ "$STATUS" != "200" ]; then
-                            echo "Smoke test FAILED"
+                            echo "Smoke test FAILED (got $STATUS)"
                             exit 1
                         fi
 
