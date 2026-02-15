@@ -60,7 +60,7 @@ spec:
         IMAGE    = "django-app"
         TAG      = "latest"
 
-        # GitOps repo
+        // GitOps repo
         GITOPS_REPO = "github.com/jaosullivan/django-gitops.git"
         GITOPS_DIR  = "django-gitops"
 
@@ -146,10 +146,10 @@ EOF
 
                             cd $GITOPS_DIR
 
-                            # Update GREEN image tag
+                            // Update GREEN image tag
                             sed -i "s/tag:.*/tag: $COMMIT/" apps/django-app/green/values-green.yaml
 
-                            # Switch ingress to GREEN
+                            // Switch ingress to GREEN
                             sed -i "s/name:.*/name: django-green-django-app-green/" clusters/production/ingress.yaml
 
                             git config user.email "ci@jenkins"
