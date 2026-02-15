@@ -44,6 +44,19 @@ rules:
       - patch
       - delete
 
+  # Batch Jobs (Helm migration hooks)
+  - apiGroups: ["batch"]
+    resources:
+      - jobs
+    verbs:
+      - get
+      - list
+      - watch
+      - create
+      - update
+      - patch
+      - delete
+
   # Ingress resources
   - apiGroups: ["networking.k8s.io"]
     resources:
