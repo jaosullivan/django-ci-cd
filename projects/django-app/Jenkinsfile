@@ -200,7 +200,7 @@ EOF
                     sh '''
                         set -e
 
-                        cp app/ingress-patch.json /tmp/ingress-patch.json
+                        cp projects/django-app/app/ingress-patch.json /tmp/ingress-patch.json
                         sed -i "s/REPLACE_HOST/$HOST/g" /tmp/ingress-patch.json
                         sed -i "s/REPLACE_SERVICE_NAME/${GREEN_RELEASE}-django-app-green/g" /tmp/ingress-patch.json
 
