@@ -18,7 +18,8 @@ image:
   tag: dev
   pullPolicy: IfNotPresent     # GHCR-friendly
 
-imagePullSecrets: []
+imagePullSecrets:
+  - name: ghcr-secret
 
 # -------------------------------------------------------------------
 # Naming
