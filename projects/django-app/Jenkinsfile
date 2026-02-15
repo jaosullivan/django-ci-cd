@@ -150,6 +150,7 @@ EOF
                           --set image.repository=$REGISTRY/$IMAGE \
                           --set image.tag=$TAG \
                           --set serviceAccount.create=true
+                          --set ingress.enabled=false
                     '''
                 }
             }
