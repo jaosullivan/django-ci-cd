@@ -8,7 +8,7 @@ metadata:
   labels:
     jenkins/label: jenkins-jenkins-agent
 spec:
-  serviceAccountName: default
+  serviceAccountName: jenkins
 
   containers:
     - name: python
