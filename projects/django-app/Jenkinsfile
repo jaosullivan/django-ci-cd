@@ -126,6 +126,10 @@ EOF
                         sh '''
                           set -e
 
+                          # Install yq (Go version)
+                          wget https://github.com/mikefarah/yq/releases/latest/download/yq_linux_amd64 -O /usr/local/bin/yq
+                          chmod +x /usr/local/bin/yq
+
                           rm -rf ${GITOPS_DIR}
                           git clone https://${USER}:${PASS}@github.com/jaosullivan/django-gitops.git ${GITOPS_DIR}
                           cd ${GITOPS_DIR}
