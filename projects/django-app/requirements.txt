@@ -8,3 +8,4 @@ tzdata==2025.3
 coverage
 pytest
 pytest-django
+pytest-cov
