@@ -8,11 +8,14 @@ spec:
   containers:
     - name: python
       image: python:3.12-slim
-      command: ['cat']
+      command: ['sleep']
+      args: ['infinity']
       tty: true
+
     - name: kaniko
       image: gcr.io/kaniko-project/executor:latest
-      command: ['cat']
+      command: ['sleep']
+      args: ['infinity']
       tty: true
 """
         }
