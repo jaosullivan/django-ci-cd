@@ -1,0 +1,4 @@
+[run]
+omit =
+    django_app/asgi.py
+    django_app/wsgi.py
