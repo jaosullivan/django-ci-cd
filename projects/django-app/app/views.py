@@ -1,38 +1,18 @@
-from django.http import HttpResponse, JsonResponse
+import os
+import socket
+from django.shortcuts import render
+from django.http import JsonResponse
 
 def home(request):
-    return HttpResponse(
-        """
-        <html>
-            <head>
-                <title>Django App</title>
-                <style>
-                    body {
-                        font-family: Arial, sans-serif;
-                        margin: 40px;
-                        color: #333;
-                    }
-                    h1 {
-                        color: #2c3e50;
-                    }
-                    p {
-                        font-size: 1.1rem;
-                    }
-                    code {
-                        background: #f4f4f4;
-                        padding: 4px 6px;
-                        border-radius: 4px;
-                    }
-                </style>
-            </head>
-            <body>
-                <h1>Welcome to the Django App</h1>
-                <p>Your Kubernetes + Traefik + GitOps deployment is running correctly.</p>
-                <p>Health endpoint: <code>/health/</code></p>
-            </body>
-        </html>
-        """
-    )
+    context = {
+        "app_name": "Django App",
+        "pod_name": socket.gethostname(),
+        "namespace": os.environ.get("POD_NAMESPACE", "unknown"),
+        "version": os.environ.get("APP_VERSION", "dev"),
+        "git_sha": os.environ.get("GIT_SHA", "unknown"),
+        "health_status": "ok",
+    }
+    return render(request, "home.html", context)
 
 def health(request):
     return JsonResponse({"status": "ok"})

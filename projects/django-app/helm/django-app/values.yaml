@@ -1,8 +1,5 @@
 # -------------------------------------------------------------------
 # Blue/Green deployment identity
-# This value is overridden by Helm:
-#   --set color=blue
-#   --set color=green
 # -------------------------------------------------------------------
 color: default
 
@@ -14,28 +11,33 @@ replicaCount: 1
 # Jenkins will override repository + tag during CI/CD
 # -------------------------------------------------------------------
 image:
-  repository: django-app
-  tag: dev
-  pullPolicy: IfNotPresent     # GHCR-friendly
+  repository: ghcr.io/jaosullivan/django-app
+  tag: landingpage-v1
+  pullPolicy: IfNotPresent
 
 imagePullSecrets:
   - name: ghcr-secret
 
 # -------------------------------------------------------------------
+# Git metadata (Jenkins writes this during CI/CD)
+# -------------------------------------------------------------------
+gitSha: "unknown"
+appVersion: "dev"
+
+# -------------------------------------------------------------------
 # Naming
-# DO NOT override fullnameOverride — Helm needs unique names per release
 # -------------------------------------------------------------------
 nameOverride: ""
 fullnameOverride: ""
 
 # -------------------------------------------------------------------
-# Service account (must be created per release for Blue/Green)
+# Service account
 # -------------------------------------------------------------------
 serviceAccount:
   create: true
   automount: true
   annotations: {}
-  name: ""                     # Let Helm generate: <release>-django-app
+  name: ""
 
 # Pod metadata
 podAnnotations: {}
@@ -46,10 +48,27 @@ podSecurityContext: {}
 securityContext: {}
 
 # -------------------------------------------------------------------
+# Environment variables injected into the Django container
+# -------------------------------------------------------------------
+env:
+  - name: POD_NAME
+    valueFrom:
+      fieldRef:
+        fieldPath: metadata.name
+
+  - name: POD_NAMESPACE
+    valueFrom:
+      fieldRef:
+        fieldPath: metadata.namespace
+
+  - name: APP_VERSION
+    value: "{{ .Values.appVersion }}"
+
+  - name: GIT_SHA
+    value: "{{ .Values.gitSha }}"
+
+# -------------------------------------------------------------------
 # Kubernetes Service
-# Each release gets its own service:
-#   django-blue-django-app
-#   django-green-django-app
 # -------------------------------------------------------------------
 service:
   type: ClusterIP
@@ -57,8 +76,6 @@ service:
 
 # -------------------------------------------------------------------
 # Ingress (Traefik)
-# Only ONE ingress should route traffic.
-# Blue/Green switching is done by changing the backend service.
 # -------------------------------------------------------------------
 ingress:
   enabled: true
@@ -107,7 +124,6 @@ affinity: {}
 
 # -------------------------------------------------------------------
 # Database migration Job
-# Allow disabling migrations for Blue/Green
 # -------------------------------------------------------------------
 migrate:
   enabled: true
