@@ -117,7 +117,7 @@ EOF
         }
 
         // ---------------------------------------------------------
-        // Update GitOps repo (image tag + activeService)
+        // Update GitOps repo (Deployment + Migration Job image tags)
         // ---------------------------------------------------------
         stage('Update GitOps Repository') {
             steps {
@@ -134,8 +134,11 @@ EOF
                           git clone https://${USER}:${PASS}@github.com/jaosullivan/django-gitops.git ${GITOPS_DIR}
                           cd ${GITOPS_DIR}
 
-                          # Update image tag in main values.yaml
+                          # Update Deployment image tag
                           yq -i '.image.tag = "${GIT_SHA}"' ${CHART_PATH}/values.yaml
+
+                          # Update Migration Job image tag (FIX)
+                          yq -i '.migrate.image.tag = "${GIT_SHA}"' ${CHART_PATH}/values.yaml
 
                           # Traffic routing via dynamic activeService
                           yq -i '.activeService = "django-app-default"' ${CHART_PATH}/values.yaml
