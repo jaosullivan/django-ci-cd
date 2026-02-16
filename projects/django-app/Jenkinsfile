@@ -1,163 +1,148 @@
 pipeline {
     agent {
         kubernetes {
-            defaultContainer 'k8s-tools'
-            yaml '''
+            yaml """
 apiVersion: v1
 kind: Pod
-metadata:
-  labels:
-    jenkins/label: jenkins-jenkins-agent
 spec:
-  serviceAccountName: jenkins
-
   containers:
     - name: python
       image: python:3.12-slim
       command: ['cat']
       tty: true
-      volumeMounts:
-        - name: workspace-volume
-          mountPath: /home/jenkins/agent
-
     - name: kaniko
-      image: gcr.io/kaniko-project/executor:debug
-      command: ['/busybox/sh']
-      args: ['-c', 'sleep 9999999']
-      tty: true
-      volumeMounts:
-        - name: workspace-volume
-          mountPath: /home/jenkins/agent
-        - name: kaniko-secret
-          mountPath: /kaniko/.docker
-
-    - name: k8s-tools
-      image: dtzar/helm-kubectl:3.15.4
+      image: gcr.io/kaniko-project/executor:latest
       command: ['cat']
       tty: true
-      volumeMounts:
-        - name: workspace-volume
-          mountPath: /home/jenkins/agent
-
-    - name: jnlp
-      image: jenkins/inbound-agent:3355.v388858a_47b_33-12
-      args: ['$(JENKINS_SECRET)', '$(JENKINS_NAME)']
-      volumeMounts:
-        - name: workspace-volume
-          mountPath: /home/jenkins/agent
-
-  volumes:
-    - name: workspace-volume
-      emptyDir: {}
-    - name: kaniko-secret
-      emptyDir: {}
-'''
+"""
         }
     }
 
     environment {
-        REGISTRY = "ghcr.io/jaosullivan"
-        IMAGE    = "django-app"
-        TAG      = "latest"
+        APP_NAME    = 'django-app'
+        IMAGE_REPO  = 'ghcr.io/jaosullivan/django-app'
 
-        // GitOps repo
-        GITOPS_REPO = "github.com/jaosullivan/django-gitops.git"
-        GITOPS_DIR  = "django-gitops"
-
-        COVERAGE_FAIL_UNDER = "80"
+        // GitOps repo details
+        GITOPS_REPO = 'https://github.com/jaosullivan/django-gitops.git'
+        GITOPS_DIR  = 'django-gitops'
+        CHART_PATH  = 'apps/django-app'
     }
 
     stages {
 
+        // ---------------------------------------------------------
+        // Checkout application repo
+        // ---------------------------------------------------------
         stage('Checkout') {
-            steps { checkout scm }
-        }
-
-        stage('Determine Version Tag') {
-            steps {
-                container('k8s-tools') {
-                    sh '''
-                        set -e
-                        git config --global --add safe.directory $(pwd)
-                        COMMIT=$(git rev-parse --short HEAD)
-                        echo $COMMIT > commit.txt
-                    '''
-                }
-                script {
-                    env.COMMIT = readFile('commit.txt').trim()
-                    echo "Using image tag: ${env.COMMIT}"
-                }
-            }
-        }
-
-        stage('Run Unit Tests (pytest + coverage)') {
             steps {
                 container('python') {
-                    sh '''
-                        set -e
-                        export PYTHONPATH=$PYTHONPATH:$(pwd)/projects/django-app
-                        pip install -r projects/django-app/requirements.txt
-                        coverage run -m pytest
-                        coverage report --fail-under=$COVERAGE_FAIL_UNDER
-                    '''
+                    checkout scm
+                    script {
+                        env.GIT_SHA = sh(
+                            returnStdout: true,
+                            script: 'git rev-parse --short HEAD'
+                        ).trim()
+                    }
                 }
             }
         }
 
-        stage('Build image (Kaniko)') {
+        // ---------------------------------------------------------
+        // Tests + coverage gate
+        // ---------------------------------------------------------
+        stage('Test & Coverage') {
             steps {
-                container('kaniko') {
-                    withCredentials([string(credentialsId: 'ghcr-pat', variable: 'GHCR_PAT')]) {
+                container('python') {
+                    dir('projects/django-app') {
                         sh '''
-                            set -e
-
-                            mkdir -p /kaniko/.docker
-                            cat <<EOF > /kaniko/.docker/config.json
-                            {
-                              "auths": {
-                                "ghcr.io": {
-                                  "auth": "$(echo -n ${REGISTRY#*/}:$GHCR_PAT | base64)"
-                                }
-                              }
-                            }
-EOF
-
-                            /kaniko/executor \
-                              --context `pwd`/projects/django-app \
-                              --dockerfile `pwd`/projects/django-app/Dockerfile \
-                              --destination $REGISTRY/$IMAGE:$TAG \
-                              --destination $REGISTRY/$IMAGE:$COMMIT \
-                              --cache=true
+                          set -e
+                          pip install -r requirements.txt
+                          pytest --maxfail=1 --disable-warnings --cov=projects/django-app --cov-report=term-missing
+                          coverage report --fail-under=80
                         '''
                     }
                 }
             }
         }
 
+        // ---------------------------------------------------------
+        // Build & push image with Kaniko
+        // ---------------------------------------------------------
+        stage('Build image (Kaniko)') {
+            environment {
+                DOCKER_CONFIG = '/kaniko/.docker'
+            }
+            steps {
+                container('kaniko') {
+                    withCredentials([string(credentialsId: 'ghcr-pat', variable: 'GHCR_PAT')]) {
+                        sh '''
+                          set -e
+                          mkdir -p /kaniko/.docker
+                          echo "{\"auths\":{\"ghcr.io\":{\"auth\":\"$(echo -n jaosullivan:${GHCR_PAT} | base64)\"}}}" > /kaniko/.docker/config.json
+
+                          /kaniko/executor \
+                            --context ${WORKSPACE}/projects/django-app \
+                            --dockerfile ${WORKSPACE}/projects/django-app/Dockerfile \
+                            --destination ${IMAGE_REPO}:latest \
+                            --destination ${IMAGE_REPO}:${GIT_SHA} \
+                            --cache=true
+                        '''
+                    }
+                }
+            }
+        }
+
+        // ---------------------------------------------------------
+        // Update GitOps repo (image tag + activeService)
+        // ---------------------------------------------------------
         stage('Update GitOps Repository') {
             steps {
-                container('k8s-tools') {
-                    withCredentials([usernamePassword(credentialsId: 'gitops-creds', usernameVariable: 'USER', passwordVariable: 'PASS')]) {
+                container('python') {
+                    withCredentials([usernamePassword(credentialsId: 'github-https', usernameVariable: 'USER', passwordVariable: 'PASS')]) {
                         sh '''
-                            set -e
+                          set -e
 
-                            rm -rf $GITOPS_DIR
-                            git clone https://$USER:$PASS@$GITOPS_REPO $GITOPS_DIR
+                          rm -rf ${GITOPS_DIR}
+                          git clone https://${USER}:${PASS}@github.com/jaosullivan/django-gitops.git ${GITOPS_DIR}
+                          cd ${GITOPS_DIR}
 
-                            cd $GITOPS_DIR
+                          # Update image tag in main values.yaml
+                          yq -i '.image.tag = "${GIT_SHA}"' ${CHART_PATH}/values.yaml
 
-                            # Update GREEN image tag
-                            sed -i "s/tag:.*/tag: $COMMIT/" apps/django-app/green/values-green.yaml
+                          # Traffic routing via dynamic activeService
+                          # Options: "django-app-default", "django-app-blue", "django-app-green"
+                          yq -i '.activeService = "django-app-default"' ${CHART_PATH}/values.yaml
 
-                            # Switch ingress to GREEN
-                            sed -i "s/name:.*/name: django-green-django-app-green/" clusters/production/ingress.yaml
+                          git config user.email "ci@jenkins"
+                          git config user.name "Jenkins CI"
 
-                            git config user.email "ci@jenkins"
-                            git config user.name "Jenkins CI"
+                          git add .
 
-                            git add .
-                            git commit -m "Deploy version $COMMIT"
+                          if git diff --cached --quiet; then
+                            echo "No changes to commit"
+                          else
+                            git commit -m "Deploy version ${GIT_SHA}"
                             git push
+                          fi
+                        '''
+                    }
+                }
+            }
+        }
+
+        // ---------------------------------------------------------
+        // Optional: Argo CD sync
+        // ---------------------------------------------------------
+        stage('Argo CD Sync (optional)') {
+            when { expression { false } } // set to true if you want Jenkins to trigger sync
+            steps {
+                container('python') {
+                    withCredentials([string(credentialsId: 'argocd-token', variable: 'ARGOCD_AUTH_TOKEN')]) {
+                        sh '''
+                          argocd app sync django-app \
+                            --auth-token ${ARGOCD_AUTH_TOKEN} \
+                            --server argocd-server.argocd.svc.cluster.local \
+                            --grpc-web
                         '''
                     }
                 }
