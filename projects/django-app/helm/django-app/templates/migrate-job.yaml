@@ -2,7 +2,7 @@
 apiVersion: batch/v1
 kind: Job
 metadata:
-  name: "{{ include "django-app.fullname" . }}-migrate-{{ .Values.color }}"
+  name: "{{ include "django-app.fullname" . }}-migrate"
   labels:
     {{- include "django-app.labels" . | nindent 4 }}
     color: {{ .Values.color }}
