@@ -92,7 +92,17 @@ spec:
                         sh '''
                           set -e
                           mkdir -p /kaniko/.docker
-                          echo "{\"auths\":{\"ghcr.io\":{\"auth\":\"$(echo -n jaosullivan:${GHCR_PAT} | base64)\"}}}" > /kaniko/.docker/config.json
+
+                          # FIX: Use HEREDOC to avoid JSON escaping issues
+                          cat > /kaniko/.docker/config.json <<EOF
+{
+  "auths": {
+    "ghcr.io": {
+      "auth": "$(echo -n jaosullivan:${GHCR_PAT} | base64)"
+    }
+  }
+}
+EOF
 
                           /kaniko/executor \
                             --context ${WORKSPACE}/projects/django-app \
