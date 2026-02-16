@@ -21,6 +21,12 @@ spec:
     spec:
       restartPolicy: Never
       serviceAccountName: {{ include "django-app.serviceAccountName" . }}
+
+      imagePullSecrets:
+        {{- range .Values.imagePullSecrets }}
+        - name: {{ .name }}
+        {{- end }}
+
       containers:
         - name: migrate
           image: "{{ .Values.image.repository }}:{{ .Values.image.tag }}"
@@ -29,11 +35,15 @@ spec:
           args: ["manage.py", "migrate", "--noinput"]
 
           env:
-            {{- if .Values.env }}
-            {{- range $key, $value := .Values.env }}
-            - name: {{ $key }}
-              value: "{{ $value }}"
-            {{- end }}
+            {{- range .Values.env }}
+            - name: {{ .name }}
+              {{- if .value }}
+              value: "{{ .value }}"
+              {{- end }}
+              {{- if .valueFrom }}
+              valueFrom:
+                {{- toYaml .valueFrom | nindent 16 }}
+              {{- end }}
             {{- end }}
 
             {{- if .Values.secretEnv }}
