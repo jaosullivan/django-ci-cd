@@ -39,7 +39,8 @@ spec:
         stage('Checkout') {
             steps {
                 container('python') {
-                    
+
+                    // Fix: allow Jenkins workspace for Git
                     sh '''
                       git config --global --add safe.directory /home/jenkins/agent/workspace/django-ci-cd
                     '''
@@ -66,7 +67,11 @@ spec:
                         sh '''
                           set -e
                           pip install -r requirements.txt
-                          pytest --maxfail=1 --disable-warnings --cov=projects/django-app --cov-report=term-missing
+
+                          # pytest.ini now controls coverage settings
+                          pytest --maxfail=1 --disable-warnings
+
+                          # Enforce coverage threshold
                           coverage report --fail-under=80
                         '''
                     }
@@ -119,7 +124,6 @@ spec:
                           yq -i '.image.tag = "${GIT_SHA}"' ${CHART_PATH}/values.yaml
 
                           # Traffic routing via dynamic activeService
-                          # Options: "django-app-default", "django-app-blue", "django-app-green"
                           yq -i '.activeService = "django-app-default"' ${CHART_PATH}/values.yaml
 
                           git config user.email "ci@jenkins"
@@ -143,7 +147,7 @@ spec:
         // Optional: Argo CD sync
         // ---------------------------------------------------------
         stage('Argo CD Sync (optional)') {
-            when { expression { false } } // set to true if you want Jenkins to trigger sync
+            when { expression { false } }
             steps {
                 container('python') {
                     withCredentials([string(credentialsId: 'argocd-token', variable: 'ARGOCD_AUTH_TOKEN')]) {
