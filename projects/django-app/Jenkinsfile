@@ -39,7 +39,13 @@ spec:
         stage('Checkout') {
             steps {
                 container('python') {
+                    
+                    sh '''
+                      git config --global --add safe.directory /home/jenkins/agent/workspace/django-ci-cd
+                    '''
+
                     checkout scm
+
                     script {
                         env.GIT_SHA = sh(
                             returnStdout: true,
