@@ -2,7 +2,7 @@
 apiVersion: batch/v1
 kind: Job
 metadata:
-  name: "{{ include "django-app.fullname" . }}-migrate"
+  name: "{{ include "django-app.fullname" . }}-migrate-{{ .Values.color }}"
   labels:
     {{- include "django-app.labels" . | nindent 4 }}
     color: {{ .Values.color }}
@@ -22,15 +22,15 @@ spec:
       restartPolicy: Never
       serviceAccountName: {{ include "django-app.serviceAccountName" . }}
 
+      {{- with .Values.imagePullSecrets }}
       imagePullSecrets:
-        {{- range .Values.imagePullSecrets }}
-        - name: {{ .name }}
-        {{- end }}
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
 
       containers:
         - name: migrate
-          image: "{{ .Values.migrate.image.repository }}:{{ .Values.migrate.image.tag }}"
-          imagePullPolicy: {{ .Values.migrate.image.pullPolicy }}
+          image: "{{ .Values.migrate.image.repository | default .Values.image.repository }}:{{ .Values.migrate.image.tag | default .Values.image.tag }}"
+          imagePullPolicy: {{ .Values.migrate.image.pullPolicy | default .Values.image.pullPolicy }}
           command: ["python"]
           args: ["manage.py", "migrate", "--noinput"]
 

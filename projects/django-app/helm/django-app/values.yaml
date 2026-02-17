@@ -1,14 +1,24 @@
 # -------------------------------------------------------------------
 # Blue/Green deployment identity
 # -------------------------------------------------------------------
-color: default
+# Active color for Deployment + Service + Job
+color: blue  # or green
 
-# Number of Django pods
+blueGreen:
+  # Optional guard to validate allowed colors
+  enabled: true
+  colors:
+    - blue
+    - green
+
+# -------------------------------------------------------------------
+# Replica settings
+# -------------------------------------------------------------------
 replicaCount: 1
 
 # -------------------------------------------------------------------
 # Image settings
-# Jenkins will override repository + tag during CI/CD
+# Jenkins/CI will typically override repository + tag
 # -------------------------------------------------------------------
 image:
   repository: ghcr.io/jaosullivan/django-app
@@ -19,7 +29,7 @@ imagePullSecrets:
   - name: ghcr-secret
 
 # -------------------------------------------------------------------
-# Git metadata (Jenkins writes this during CI/CD)
+# Git metadata (CI writes this)
 # -------------------------------------------------------------------
 gitSha: "unknown"
 appVersion: "dev"
@@ -67,6 +77,9 @@ env:
   - name: GIT_SHA
     value: "{{ .Values.gitSha }}"
 
+# Optional secret-based env
+secretEnv: {}
+
 # -------------------------------------------------------------------
 # Kubernetes Service
 # -------------------------------------------------------------------
@@ -75,27 +88,25 @@ service:
   port: 8000
 
 # -------------------------------------------------------------------
-# Ingress (Traefik)
+# Ingress (example)
 # -------------------------------------------------------------------
 ingress:
   enabled: true
   className: traefik
-
   annotations:
     kubernetes.io/ingress.class: traefik
-
   hosts:
     - host: django.local
       paths:
         - path: /
           pathType: Prefix
-
   tls: []
 
-# Resources
+# -------------------------------------------------------------------
+# Probes, resources, autoscaling
+# -------------------------------------------------------------------
 resources: {}
 
-# Health checks
 livenessProbe:
   httpGet:
     path: /health/
@@ -106,18 +117,18 @@ readinessProbe:
     path: /health/
     port: http
 
-# Autoscaling
 autoscaling:
   enabled: false
   minReplicas: 1
   maxReplicas: 100
   targetCPUUtilizationPercentage: 80
 
-# Volumes
+# -------------------------------------------------------------------
+# Volumes & scheduling
+# -------------------------------------------------------------------
 volumes: []
 volumeMounts: []
 
-# Scheduling
 nodeSelector: {}
 tolerations: []
 affinity: {}
@@ -127,7 +138,8 @@ affinity: {}
 # -------------------------------------------------------------------
 migrate:
   enabled: true
+  # Optional overrides; normally you leave these empty to inherit from image.*
   image:
-    repository: ghcr.io/jaosullivan/django-app
-    tag: landingpage-v1
-    pullPolicy: IfNotPresent
+    repository: ""
+    tag: ""
+    pullPolicy: ""
