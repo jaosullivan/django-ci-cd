@@ -127,3 +127,7 @@ affinity: {}
 # -------------------------------------------------------------------
 migrate:
   enabled: true
+  image:
+    repository: ghcr.io/jaosullivan/django-app
+    tag: landingpage-v1
+    pullPolicy: IfNotPresent
