@@ -1,16 +1,27 @@
-# --- STAGING VALUES ---
+# -------------------------------------------------------------------
+# STAGING VALUES
+# -------------------------------------------------------------------
 
 replicaCount: 1
 
+# -------------------------------------------------------------------
+# Image settings (Jenkins overrides tag during CI/CD)
+# -------------------------------------------------------------------
 image:
-  repository: ghcr.io/YOUR_GITHUB_USERNAME/django-app
-  tag: "staging"            # Jenkins will override this with commit SHA
+  repository: ghcr.io/jaosullivan/django-app
+  tag: "staging"
   pullPolicy: IfNotPresent
 
+# -------------------------------------------------------------------
+# Service
+# -------------------------------------------------------------------
 service:
   type: ClusterIP
   port: 8000
 
+# -------------------------------------------------------------------
+# Ingress (Traefik)
+# -------------------------------------------------------------------
 ingress:
   enabled: true
   className: traefik
@@ -21,16 +32,25 @@ ingress:
       paths:
         - path: /
           pathType: Prefix
-  tls: []   # Add certs later if needed
+  tls: []
 
+# -------------------------------------------------------------------
+# Environment variables
+# -------------------------------------------------------------------
 env:
   DJANGO_SETTINGS_MODULE: "django_app.settings.staging"
   ALLOWED_HOSTS: "staging.django.local"
 
+# -------------------------------------------------------------------
+# Secret environment variables
+# -------------------------------------------------------------------
 secretEnv:
   SECRET_KEY: "replace-me-staging"
   DATABASE_URL: "postgres://user:pass@staging-db:5432/django"
 
+# -------------------------------------------------------------------
+# Resource requests/limits
+# -------------------------------------------------------------------
 resources:
   limits:
     cpu: 250m

@@ -1,16 +1,27 @@
-# --- PRODUCTION VALUES ---
+# -------------------------------------------------------------------
+# PRODUCTION VALUES
+# -------------------------------------------------------------------
 
 replicaCount: 3
 
+# -------------------------------------------------------------------
+# Image settings (Jenkins overrides tag during CI/CD)
+# -------------------------------------------------------------------
 image:
-  repository: ghcr.io/YOUR_GITHUB_USERNAME/django-app
-  tag: "latest"             # Jenkins will override this with commit SHA
+  repository: ghcr.io/jaosullivan/django-app
+  tag: "latest"
   pullPolicy: IfNotPresent
 
+# -------------------------------------------------------------------
+# Service
+# -------------------------------------------------------------------
 service:
   type: ClusterIP
   port: 8000
 
+# -------------------------------------------------------------------
+# Ingress (Traefik)
+# -------------------------------------------------------------------
 ingress:
   enabled: true
   className: traefik
@@ -24,16 +35,25 @@ ingress:
   tls:
     - hosts:
         - django.example.com
-      secretName: django-tls-secret   # Add cert later
+      secretName: django-tls-secret
 
+# -------------------------------------------------------------------
+# Environment variables
+# -------------------------------------------------------------------
 env:
   DJANGO_SETTINGS_MODULE: "django_app.settings.production"
   ALLOWED_HOSTS: "django.example.com"
 
+# -------------------------------------------------------------------
+# Secret environment variables
+# -------------------------------------------------------------------
 secretEnv:
   SECRET_KEY: "replace-me-production"
   DATABASE_URL: "postgres://user:pass@prod-db:5432/django"
 
+# -------------------------------------------------------------------
+# Resource requests/limits
+# -------------------------------------------------------------------
 resources:
   limits:
     cpu: 500m
@@ -42,6 +62,9 @@ resources:
     cpu: 200m
     memory: 256Mi
 
+# -------------------------------------------------------------------
+# Autoscaling
+# -------------------------------------------------------------------
 autoscaling:
   enabled: true
   minReplicas: 3
