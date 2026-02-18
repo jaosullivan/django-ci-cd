@@ -25,28 +25,30 @@ spec:
         APP_NAME    = 'django-app'
         IMAGE_REPO  = 'ghcr.io/jaosullivan/django-app'
 
-        // GitOps repo details
         GITOPS_REPO = 'https://github.com/jaosullivan/django-gitops.git'
         GITOPS_DIR  = 'django-gitops'
         CHART_PATH  = 'apps/django-app'
+
+        SEMANTIC_TAG = 'dev'
+    }
+
+    parameters {
+        booleanParam(name: 'PROMOTE', defaultValue: false, description: 'Promote dev → blue/green')
+        choice(name: 'TARGET_COLOR', choices: ['blue', 'green'], description: 'Which color to promote to')
     }
 
     stages {
 
         // ---------------------------------------------------------
-        // Checkout application repo
+        // Checkout
         // ---------------------------------------------------------
         stage('Checkout') {
             steps {
                 container('python') {
-
-                    // Fix: allow Jenkins workspace for Git
                     sh '''
                       git config --global --add safe.directory /home/jenkins/agent/workspace/django-ci-cd
                     '''
-
                     checkout scm
-
                     script {
                         env.GIT_SHA = sh(
                             returnStdout: true,
@@ -58,7 +60,7 @@ spec:
         }
 
         // ---------------------------------------------------------
-        // Tests + coverage gate
+        // Tests + coverage
         // ---------------------------------------------------------
         stage('Test & Coverage') {
             steps {
@@ -67,11 +69,7 @@ spec:
                         sh '''
                           set -e
                           pip install -r requirements.txt
-
-                          # pytest.ini now controls coverage settings
                           pytest --maxfail=1 --disable-warnings
-
-                          # Enforce coverage threshold
                           coverage report --fail-under=80
                         '''
                     }
@@ -93,7 +91,6 @@ spec:
                           set -e
                           mkdir -p /kaniko/.docker
 
-                          # FIX: Use HEREDOC to avoid JSON escaping issues
                           cat > /kaniko/.docker/config.json <<EOF
 {
   "auths": {
@@ -109,6 +106,7 @@ EOF
                             --dockerfile ${WORKSPACE}/projects/django-app/Dockerfile \
                             --destination ${IMAGE_REPO}:latest \
                             --destination ${IMAGE_REPO}:${GIT_SHA} \
+                            --destination ${IMAGE_REPO}:${SEMANTIC_TAG} \
                             --cache=true
                         '''
                     }
@@ -117,16 +115,15 @@ EOF
         }
 
         // ---------------------------------------------------------
-        // Update GitOps repo (Deployment + Migration Job image tags)
+        // GitOps repo structure update (no image tags)
         // ---------------------------------------------------------
-        stage('Update GitOps Repository') {
+        stage('Update GitOps Repository (structure only)') {
             steps {
                 container('python') {
                     withCredentials([usernamePassword(credentialsId: 'gitops-creds', usernameVariable: 'USER', passwordVariable: 'PASS')]) {
                         sh '''
                           set -e
 
-                          # Install yq (Go version)
                           wget https://github.com/mikefarah/yq/releases/latest/download/yq_linux_amd64 -O /usr/local/bin/yq
                           chmod +x /usr/local/bin/yq
 
@@ -134,24 +131,15 @@ EOF
                           git clone https://${USER}:${PASS}@github.com/jaosullivan/django-gitops.git ${GITOPS_DIR}
                           cd ${GITOPS_DIR}
 
-                          # Update Deployment image tag
-                          yq -i '.image.tag = "${GIT_SHA}"' ${CHART_PATH}/values.yaml
-
-                          # Update Migration Job image tag (FIX)
-                          yq -i '.migrate.image.tag = "${GIT_SHA}"' ${CHART_PATH}/values.yaml
-
-                          # Traffic routing via dynamic activeService
-                          yq -i '.activeService = "django-app-default"' ${CHART_PATH}/values.yaml
-
                           git config user.email "ci@jenkins"
                           git config user.name "Jenkins CI"
 
                           git add .
 
                           if git diff --cached --quiet; then
-                            echo "No changes to commit"
+                            echo "No structural changes"
                           else
-                            git commit -m "Deploy version ${GIT_SHA}"
+                            git commit -m "Structural update (no image tags) ${GIT_SHA}"
                             git push
                           fi
                         '''
@@ -161,19 +149,151 @@ EOF
         }
 
         // ---------------------------------------------------------
-        // Optional: Argo CD sync
+        // PROMOTION: dev → blue/green
         // ---------------------------------------------------------
-        stage('Argo CD Sync (optional)') {
-            when { expression { false } }
+        stage('Promote Image') {
+            when { expression { return params.PROMOTE == true } }
+            environment {
+                GHCR = credentials('ghcr-pat')
+            }
             steps {
                 container('python') {
-                    withCredentials([string(credentialsId: 'argocd-token', variable: 'ARGOCD_AUTH_TOKEN')]) {
-                        sh '''
-                          argocd app sync django-app \
-                            --auth-token ${ARGOCD_AUTH_TOKEN} \
-                            --server argocd-server.argocd.svc.cluster.local \
-                            --grpc-web
-                        '''
+                    sh """
+                        echo ${GHCR_PSW} | docker login ghcr.io -u ${GHCR_USR} --password-stdin
+
+                        docker pull ${IMAGE_REPO}:${SEMANTIC_TAG}
+                        docker tag ${IMAGE_REPO}:${SEMANTIC_TAG} ${IMAGE_REPO}:${TARGET_COLOR}
+                        docker push ${IMAGE_REPO}:${TARGET_COLOR}
+                    """
+                }
+            }
+        }
+
+        // ---------------------------------------------------------
+        // HEALTH CHECK with automatic rollback trigger
+        // ---------------------------------------------------------
+        stage('Health Check New Color') {
+            when { expression { return params.PROMOTE == true } }
+            steps {
+                container('python') {
+                    script {
+                        try {
+                            sh """
+                                echo "Waiting for deployment django-app-${TARGET_COLOR} to become ready..."
+
+                                kubectl rollout status deployment/django-app-${TARGET_COLOR} \
+                                    --namespace default \
+                                    --timeout=120s
+                            """
+                        } catch (err) {
+                            echo "❌ Health check FAILED for ${TARGET_COLOR}. Triggering automatic rollback..."
+                            currentBuild.result = 'FAILURE'
+                            error("Health check failed — initiating rollback")
+                        }
+                    }
+                }
+            }
+        }
+
+        // ---------------------------------------------------------
+        // SWITCH TRAFFIC (only if health check passed)
+        // ---------------------------------------------------------
+        stage('Switch Traffic (GitOps)') {
+            when { expression { return params.PROMOTE == true && currentBuild.result != 'FAILURE' } }
+            environment {
+                GITOPS = credentials('gitops-creds')
+            }
+            steps {
+                container('python') {
+                    sh """
+                        chmod +x ci/scripts/switch-color.sh
+                        ./ci/scripts/switch-color.sh ${TARGET_COLOR}
+                    """
+                }
+            }
+        }
+
+        // ---------------------------------------------------------
+        // ARGO CD SYNC VERIFICATION
+        // ---------------------------------------------------------
+        stage('Argo CD Sync Verification') {
+            when { expression { return params.PROMOTE == true && currentBuild.result != 'FAILURE' } }
+            environment {
+                ARGO = credentials('argocd-token')
+            }
+            steps {
+                container('python') {
+                    script {
+                        try {
+                            sh """
+                                echo "🔍 Waiting for Argo CD to sync django-app..."
+
+                                argocd app wait django-app \
+                                  --auth-token ${ARGO_PSW} \
+                                  --server argocd-server.argocd.svc.cluster.local \
+                                  --grpc-web \
+                                  --timeout 120 \
+                                  --health \
+                                  --sync
+                            """
+
+                            echo "✅ Argo CD reports: Synced + Healthy"
+
+                        } catch (err) {
+                            echo "❌ Argo CD sync verification FAILED. Triggering automatic rollback..."
+                            currentBuild.result = 'FAILURE'
+                            error("Argo CD sync failed — initiating rollback")
+                        }
+                    }
+                }
+            }
+        }
+
+        // ---------------------------------------------------------
+        // SMOKE TEST (functional validation)
+        // ---------------------------------------------------------
+        stage('Smoke Test') {
+            when { expression { return params.PROMOTE == true && currentBuild.result != 'FAILURE' } }
+            steps {
+                container('python') {
+                    script {
+                        try {
+                            sh """
+                                echo "🚦 Running smoke test against ${TARGET_COLOR} environment..."
+
+                                curl -f http://django.local/health/ --max-time 10
+                            """
+
+                            echo "🟢 Smoke test passed"
+
+                        } catch (err) {
+                            echo "❌ Smoke test FAILED. Triggering automatic rollback..."
+                            currentBuild.result = 'FAILURE'
+                            error("Smoke test failed — initiating rollback")
+                        }
+                    }
+                }
+            }
+        }
+
+        // ---------------------------------------------------------
+        // AUTOMATIC ROLLBACK (health, ArgoCD, or smoke test failure)
+        // ---------------------------------------------------------
+        stage('Automatic Rollback') {
+            when { expression { return params.PROMOTE == true && currentBuild.result == 'FAILURE' } }
+            steps {
+                container('python') {
+                    script {
+                        def rollbackColor = (params.TARGET_COLOR == 'blue') ? 'green' : 'blue'
+
+                        echo "🔄 Rolling back traffic to ${rollbackColor}..."
+
+                        sh """
+                            chmod +x ci/scripts/switch-color.sh
+                            ./ci/scripts/switch-color.sh ${rollbackColor}
+                        """
+
+                        echo "🟢 Rollback complete. Traffic restored to ${rollbackColor}."
                     }
                 }
             }
